@@ -1,0 +1,8 @@
+node_modules
+.yarn
+.next
+dist
+build
+
+**/*.json
+**/*.js
