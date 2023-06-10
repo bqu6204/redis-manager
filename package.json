@@ -1,0 +1,24 @@
+{
+  "name": "@es-node/redis-manager",
+  "version": "1.0.0",
+  "description": "An ioredis wrapper featured with redlock , NX settings to prevent race condition,  and a prefix handler automatically concat and split prefixes.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bqu6204/redis-manager.git"
+  },
+  "keywords": [
+    "redis",
+    "memory",
+    "storage"
+  ],
+  "author": "esong",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/bqu6204/redis-manager/issues"
+  },
+  "homepage": "https://github.com/bqu6204/redis-manager#readme"
+}
