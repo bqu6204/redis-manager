@@ -3,3 +3,4 @@ export * from './11-key-not-exist';
 export * from './20-value-undefined';
 export * from './30-redis-internal';
 export * from './40-redlock-internal';
+export * from './50-unknown-internal';

@@ -1,6 +1,6 @@
 import { Redis } from 'ioredis';
 import Redlock, { Settings } from 'redlock';
-import { KeyExistError10, KeyNotExistError11, RedisInternalError30 } from './errors';
+import { KeyExistError10, KeyNotExistError11, RedisInternalError30, UnknownInternalError50 } from './errors';
 import { CustomError } from './errors/core/_custom-error';
 import { JSONHandler } from './handler-json';
 import { PrefixHandler } from './handler-prefix';
@@ -8,18 +8,10 @@ import { PrefixHandler } from './handler-prefix';
 /**
  * Represents the input parameters for adding a key-value pair with an optional time-to-live (TTL) value.
  */
-type TInputKeyValueWithTTL<V> = {
+type TInputKeyValueWithLockTTL<V> = {
     key: string; // The key associated with the value.
     value: V extends null ? never : NonNullable<V>; // The value associated with the key. Cannot be null.
-    ttl?: number; // Optional time-to-live value in milliseconds.
-};
-
-/**
- * Represents the output of adding a key-value pair, including the key and the associated value.
- */
-type TOutputKeyValue<V> = {
-    key: string; // The key associated with the value.
-    value: V extends null ? null : V; // The value associated with the key. Can be null if V is nullable.
+    lockTTL?: number; // Optional time-to-live value in milliseconds.
 };
 
 /**
@@ -33,45 +25,45 @@ interface IRedisManager<V> {
      *
      * @param key The key associated with the value.
      * @param value The value to be stored.
-     * @param ttl Optional time-to-live value in milliseconds.
-     * @returns A promise that resolves to the added key-value pair.
+     * @param lockTTL Optional time-to-live value in milliseconds.
+     * @returns A promise that resolves 'OK'.
      * @throws KeyExistError10 if the key already exists.
      * @throws RedisInternalError30 if an error occurs during the Redis operation.
      */
-    add({ key, value, ttl }: TInputKeyValueWithTTL<V>): Promise<TOutputKeyValue<V>>;
+    add({ key, value, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'>;
 
     /**
      * Updates the value of an existing key in Redis.
      *
      * @param key The key associated with the value.
      * @param value The new value to be updated.
-     * @param ttl Optional time-to-live value in milliseconds.
-     * @returns A promise that resolves to the updated key-value pair.
+     * @param lockTTL Optional time-to-live value in milliseconds.
+     * @returns A promise that resolves 'OK'.
      * @throws KeyNotExistError11 if the key does not exist.
      * @throws RedisInternalError30 if an error occurs during the Redis operation.
      */
-    update({ key, value, ttl }: TInputKeyValueWithTTL<V>): Promise<TOutputKeyValue<V>>;
+    update({ key, value, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'>;
 
     /**
      * Upserts a key-value pair in Redis. If the key exists, the value is updated; otherwise, a new key-value pair is added.
      *
      * @param key The key associated with the value.
      * @param value The value to be stored.
-     * @param ttl Optional time-to-live value in milliseconds.
-     * @returns A promise that resolves to the upserted key-value pair.
+     * @param lockTTL Optional time-to-live value in milliseconds.
+     * @returns A promise that resolves 'OK'.
      * @throws RedisInternalError30 if an error occurs during the Redis operation.
      */
-    upsert({ key, value, ttl }: TInputKeyValueWithTTL<V>): Promise<TOutputKeyValue<V>>;
+    upsert({ key, value, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'>;
 
     /**
      * Deletes a key and its associated value from Redis.
      *
      * @param key The key to be deleted.
-     * @param ttl Optional time-to-live value in milliseconds.
+     * @param lockTTL Optional time-to-live value in milliseconds.
      * @returns A promise that resolves to true if the key was deleted successfully, false otherwise.
      * @throws RedisInternalError30 if an error occurs during the Redis operation.
      */
-    delete({ key, ttl }: TInputKeyValueWithTTL<V>): Promise<boolean>;
+    delete({ key, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<boolean>;
 
     /**
      * Checks if a key exists in Redis.
@@ -107,7 +99,7 @@ interface IRedisManagerConfig {
     client: Redis; // The Redis client instance.
     expireMs?: number; // Optional expiration time in milliseconds for keys.
     namespace: string; // The namespace prefix for keys.
-    defaultTTL: number; // The default time-to-live (TTL) value for keys.
+    defaultLockTTL: number; // The default time-to-live (lockTTL) value for keys.
     maxRetries: number; // The number of retries for failed Redis internal operations.
     redlockConfig?: Partial<Settings>; // Optional configuration for Redlock distributed lock.
 }
@@ -120,7 +112,7 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
     private readonly _client: Redis; // The Redis client instance.
     private readonly _namespace: string; // The namespace prefix for keys.
     private readonly _expireMs?: number; // Optional expiration time in milliseconds for keys.
-    private readonly _defaultTTL: number; // The default time-to-live (TTL) value for keys.
+    private readonly _defaultLockTTL: number; // The default time-to-live (TTL) value for keys.
     private readonly _maxRetries: number; // The number of retries for failed Redis internal operations.
 
     private readonly _JSONHandler: JSONHandler<V>;
@@ -131,11 +123,11 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
      * Creates an instance of RedisManager.
      * @param config The configuration options for the RedisManager.
      */
-    constructor({ client, expireMs, namespace, defaultTTL, redlockConfig, maxRetries }: IRedisManagerConfig) {
+    constructor({ client, expireMs, namespace, defaultLockTTL, redlockConfig, maxRetries }: IRedisManagerConfig) {
         this._client = client;
         this._expireMs = expireMs;
         this._namespace = namespace;
-        this._defaultTTL = defaultTTL;
+        this._defaultLockTTL = defaultLockTTL;
         this._maxRetries = maxRetries;
 
         this._JSONHandler = new JSONHandler();
@@ -159,39 +151,58 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
         return this._expireMs;
     }
 
-    async add({ key, value, ttl = this._defaultTTL }: TInputKeyValueWithTTL<V>): Promise<TOutputKeyValue<V>> {
+    async add({ key, value, lockTTL = this._defaultLockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'> {
         const prefixedKey = this._prefixHandler.concat(key);
         let lock;
         try {
-            lock = await this._redlock.acquire(['lock:' + prefixedKey], ttl);
-
-            const exist = await this._client.exists(prefixedKey);
-            if (exist) {
-                throw new KeyExistError10(`Key ${key} already exists.`);
-            }
+            lock = await this._redlock.acquire(['lock:' + prefixedKey], lockTTL);
             const pipeline = this._client.pipeline().set(prefixedKey, this._JSONHandler.serialize(value), 'NX');
             if (this._expireMs) {
                 pipeline.pexpire(prefixedKey, this._expireMs);
             }
 
             let retries = this._maxRetries;
-            while (retries >= 0) {
+
+            do {
                 try {
-                    await pipeline.exec();
-                } catch (error) {
-                    if (retries === 0) {
+                    const result = await pipeline.exec();
+                    if (!result)
                         throw new RedisInternalError30(
-                            `Failed to add key-value pair ${JSON.stringify({ key, value: value ?? null })} in Redis`,
+                            `Failed to add key-value pair ${JSON.stringify({ key, value: value ?? null })} in Redis`
+                        );
+
+                    // ioredis doc :
+                    // The resolve to pipline.exec() will look like
+                    //   [[ null, <<return value 1>> ], [ null, <<return value 2>> ], ...].
+                    // Every [n][0] will be set to null, and [n][1] is the return value.
+
+                    if (result[0][1] !== 'OK') throw new KeyExistError10(`Key ${key} already exists.`);
+                    if (this._expireMs && !result[1][1])
+                        throw new RedisInternalError30(`Failed to add expire ms when adding key ${key} in Redis`);
+
+                    return 'OK';
+                } catch (error) {
+                    if (error instanceof KeyExistError10) throw error;
+
+                    if (retries === 0) {
+                        if (error instanceof CustomError) throw error;
+                        throw new UnknownInternalError50(
+                            `Unhandled Error occurs in runtime when adding key-value pair ${JSON.stringify({
+                                key,
+                                value: value ?? null,
+                            })} .`,
                             error
                         );
                     }
                     retries--;
                 }
-            }
-            return { key, value: value ?? null };
+            } while (retries > 0);
+            throw new UnknownInternalError50(
+                "This error shouldn't have occured , please check the add method in Redis Manager class if ."
+            );
         } catch (error) {
             if (error instanceof CustomError) throw error;
-            throw new RedisInternalError30(
+            throw new UnknownInternalError50(
                 `Failed to add key-value pair ${JSON.stringify({ key, value: value ?? null })} in Redis`,
                 error
             );
@@ -209,27 +220,34 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
         }
     }
 
-    async update({ key, value, ttl = this._defaultTTL }: TInputKeyValueWithTTL<V>): Promise<TOutputKeyValue<V>> {
+    async update({ key, value, lockTTL = this._defaultLockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'> {
         const prefixedKey = this._prefixHandler.concat(key);
         let lock;
         try {
-            lock = await this._redlock.acquire(['lock:' + prefixedKey], ttl);
+            lock = await this._redlock.acquire(['lock:' + prefixedKey], lockTTL);
 
-            const exist = await this._client.exists(prefixedKey);
-            if (!exist) {
-                throw new KeyNotExistError11(`Key ${key} does not exist.`);
-            }
-            const pipeline = this._client.pipeline().set(prefixedKey, this._JSONHandler.serialize(value), 'NX');
+            const pipeline = this._client.pipeline().set(prefixedKey, this._JSONHandler.serialize(value), 'XX');
             if (this._expireMs) {
                 pipeline.pexpire(prefixedKey, this._expireMs);
             }
 
             let retries = this._maxRetries;
-            while (retries >= 0) {
+            do {
                 try {
-                    await pipeline.exec();
+                    const result = await pipeline.exec();
+                    if (!result)
+                        throw new RedisInternalError30(
+                            `Failed to update key-value pair ${JSON.stringify({ key, value: value ?? null })} in Redis`
+                        );
+                    if (result[0][1] !== 'OK') throw new KeyNotExistError11(`Key ${key} does not exist`);
+                    if (this._expireMs && !result[1][1])
+                        throw new RedisInternalError30(`Failed to refresh expire ms when udpating key ${key} in Redis`);
+
+                    return 'OK';
                 } catch (error) {
+                    if (error instanceof KeyNotExistError11) throw error;
                     if (retries === 0) {
+                        if (error instanceof CustomError) throw error;
                         throw new RedisInternalError30(
                             `Failed to update key-value pair ${JSON.stringify({ key, value: value ?? null })} in Redis`,
                             error
@@ -237,8 +255,10 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
                     }
                     retries--;
                 }
-            }
-            return { key, value: value ?? null };
+            } while (retries > 0);
+            throw new UnknownInternalError50(
+                "This error shouldn't have occured , please check the update method in Redis Manager class ."
+            );
         } catch (error) {
             if (error instanceof CustomError) throw error;
             throw new RedisInternalError30(
@@ -259,12 +279,12 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
         }
     }
 
-    async upsert({ key, value, ttl = this._defaultTTL }: TInputKeyValueWithTTL<V>): Promise<TOutputKeyValue<V>> {
+    async upsert({ key, value, lockTTL = this._defaultLockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'> {
         const prefixedKey = this._prefixHandler.concat(key);
         let lock;
 
         try {
-            lock = await this._redlock.acquire(['lock:' + prefixedKey], ttl);
+            lock = await this._redlock.acquire(['lock:' + prefixedKey], lockTTL);
 
             const pipeline = this._client.pipeline().set(prefixedKey, this._JSONHandler.serialize(value), 'NX');
             if (this._expireMs) {
@@ -274,9 +294,18 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
             let retries = this._maxRetries;
             while (retries >= 0) {
                 try {
-                    await pipeline.exec();
+                    const result = await pipeline.exec();
+                    if (!result)
+                        throw new RedisInternalError30(
+                            `Failed to upsert key-value pair ${JSON.stringify({ key, value: value ?? null })} in Redis`
+                        );
+                    if (this._expireMs && !result[1][1])
+                        throw new RedisInternalError30(`Failed to refresh expire ms when udpating key ${key} in Redis`);
+
+                    return 'OK';
                 } catch (error) {
                     if (retries === 0) {
+                        if (error instanceof CustomError) throw error;
                         throw new RedisInternalError30(
                             `Failed to upsert key-value pair ${JSON.stringify({ key, value: value ?? null })} in Redis`,
                             error
@@ -285,7 +314,10 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
                     retries--;
                 }
             }
-            return { key, value: value ?? null };
+
+            throw new UnknownInternalError50(
+                "This error shouldn't have occured , please check the upsert method in Redis Manager class ."
+            );
         } catch (error) {
             if (error instanceof CustomError) throw error;
             throw new RedisInternalError30(
@@ -306,12 +338,12 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
         }
     }
 
-    async delete({ key, ttl = this._defaultTTL }: TInputKeyValueWithTTL<V>): Promise<boolean> {
+    async delete({ key, lockTTL = this._defaultLockTTL }: TInputKeyValueWithLockTTL<V>): Promise<boolean> {
         const prefixedKey = this._prefixHandler.concat(key);
         let lock;
 
         try {
-            lock = await this._redlock.acquire(['lock:' + prefixedKey], ttl);
+            lock = await this._redlock.acquire(['lock:' + prefixedKey], lockTTL);
 
             let retries = this._maxRetries;
             let result;
@@ -398,4 +430,4 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
     }
 }
 
-export { RedisManager, TInputKeyValueWithTTL, TOutputKeyValue, IRedisManager, IRedisManagerConfig };
+export { RedisManager, TInputKeyValueWithLockTTL, IRedisManager, IRedisManagerConfig };

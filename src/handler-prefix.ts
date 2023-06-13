@@ -1,3 +1,5 @@
+import { KeyInvalidError12 } from './errors/12-key-invalid';
+
 interface IPrefixHandler {
     concat(key: string): string;
     split(prefixedKey: string): string;
@@ -11,6 +13,7 @@ class PrefixHandler implements IPrefixHandler {
     }
 
     concat(key: string): string {
+        if (typeof key !== 'string') throw new KeyInvalidError12(`Key: ${JSON.stringify(key)} is not a string`);
         return this._prefix + key;
     }
 
