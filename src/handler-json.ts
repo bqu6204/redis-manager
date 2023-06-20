@@ -14,10 +14,12 @@ class JSONHandler<V> implements IJSONHandler<V> {
         // eg. boolean, number , null, valid object, array.
         if (typeof value !== 'string') return false;
 
+        /* eslint-disable */
         if (value.trim().length === 0) return false;
-        value = value.replace(/\\(?:["\\\/bfnrt]|u[0-9a-fA-F]{4})/g, '@');
+        value = value.replace(/\\(?:["\/bfnrt]|u[0-9a-fA-F]{4})/g, '@');
         value = value.replace(/"[^"\\\n\r]*"|true|false|null|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?/g, ']');
         value = value.replace(/(?:^|:|,)(?:\s*\[)+/g, '');
+        /* eslint-enable */
         return /^[\],:{}\s]*$/.test(value);
     }
 

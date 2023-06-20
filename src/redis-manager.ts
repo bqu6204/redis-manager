@@ -10,7 +10,7 @@ import { PrefixHandler } from './handler-prefix';
  */
 type TInputKeyValueWithLockTTL<V> = {
     key: string; // The key associated with the value.
-    value: V extends null ? never : NonNullable<V>; // The value associated with the key. Cannot be null.
+    value: V; // The value associated with the key. Cannot be null.
     lockTTL?: number; // Optional time-to-live value in milliseconds.
 };
 
@@ -31,7 +31,6 @@ interface IRedisManager<V> {
      * @throws RedisInternalError30 if an error occurs during the Redis operation.
      */
     add({ key, value, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'>;
-
     /**
      * Updates the value of an existing key in Redis.
      *
@@ -95,44 +94,56 @@ interface IRedisManager<V> {
 /**
  * Configuration options for the RedisManager.
  */
-interface IRedisManagerConfig {
-    client: Redis; // The Redis client instance.
-    expireMs?: number; // Optional expiration time in milliseconds for keys.
-    namespace: string; // The namespace prefix for keys.
-    defaultLockTTL: number; // The default time-to-live (lockTTL) value for keys.
-    maxRetries: number; // The number of retries for failed Redis internal operations.
-    redlockConfig?: Partial<Settings>; // Optional configuration for Redlock distributed lock.
-}
+
+type TRedisManagerConfig =
+    | {
+          client: Redis; // The Redis client instance.
+          expireMs?: number; // Optional expiration time in milliseconds for keys.
+          namespace: string; // The namespace prefix for keys.
+          maxRetries: number; // The number of retries for failed Redis internal operations.
+          useRedlock: false;
+      }
+    | {
+          client: Redis; // The Redis client instance.
+          expireMs?: number; // Optional expiration time in milliseconds for keys.
+          namespace: string; // The namespace prefix for keys.
+          maxRetries: number; // The number of retries for failed Redis internal operations.
+          useRedlock: true;
+          defaultLockTTL: number;
+          redlockConfig?: Partial<Settings>;
+      };
 
 /**
  * RedisManager provides a set of methods to interact with Redis.
  * @template V The type of values stored in Redis.
  */
-class RedisManager<V extends string | number | Buffer | null> implements IRedisManager<V> {
+class RedisManager<V> implements IRedisManager<V> {
     private readonly _client: Redis; // The Redis client instance.
     private readonly _namespace: string; // The namespace prefix for keys.
     private readonly _expireMs?: number; // Optional expiration time in milliseconds for keys.
-    private readonly _defaultLockTTL: number; // The default time-to-live (TTL) value for keys.
     private readonly _maxRetries: number; // The number of retries for failed Redis internal operations.
-
     private readonly _JSONHandler: JSONHandler<V>;
     private readonly _prefixHandler: PrefixHandler; // The prefix handler for key namespacing.
-    private readonly _redlock: Redlock; // The distributed lock manager.
+    private readonly _redlock?: Redlock; // The distributed lock manager.
+    private readonly _defaultLockTTL?: number; // The default time-to-live (TTL) value for keys.
 
     /**
      * Creates an instance of RedisManager.
      * @param config The configuration options for the RedisManager.
      */
-    constructor({ client, expireMs, namespace, defaultLockTTL, redlockConfig, maxRetries }: IRedisManagerConfig) {
-        this._client = client;
-        this._expireMs = expireMs;
-        this._namespace = namespace;
-        this._defaultLockTTL = defaultLockTTL;
-        this._maxRetries = maxRetries;
+    constructor(props: TRedisManagerConfig) {
+        this._client = props.client;
+        this._expireMs = props.expireMs;
+        this._namespace = props.namespace;
+        this._maxRetries = props.maxRetries;
 
         this._JSONHandler = new JSONHandler();
-        this._prefixHandler = new PrefixHandler({ namespace });
-        this._redlock = new Redlock([this._client], redlockConfig);
+        this._prefixHandler = new PrefixHandler({ namespace: props.namespace });
+
+        if (props.useRedlock) {
+            this._redlock = new Redlock([this._client], props.redlockConfig);
+            this._defaultLockTTL = props.defaultLockTTL;
+        }
     }
 
     /**
@@ -151,11 +162,13 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
         return this._expireMs;
     }
 
-    async add({ key, value, lockTTL = this._defaultLockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'> {
+    async add({ key, value, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'> {
         const prefixedKey = this._prefixHandler.concat(key);
         let lock;
         try {
-            lock = await this._redlock.acquire(['lock:' + prefixedKey], lockTTL);
+            lock = this._redlock
+                ? await this._redlock.acquire(['lock:' + prefixedKey], lockTTL || this._defaultLockTTL!)
+                : null;
             const pipeline = this._client.pipeline().set(prefixedKey, this._JSONHandler.serialize(value), 'NX');
             if (this._expireMs) {
                 pipeline.pexpire(prefixedKey, this._expireMs);
@@ -176,14 +189,15 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
                     //   [[ null, <<return value 1>> ], [ null, <<return value 2>> ], ...].
                     // Every [n][0] will be set to null, and [n][1] is the return value.
 
+                    console.log('Result: ', result);
+
                     if (result[0][1] !== 'OK') throw new KeyExistError10(`Key ${key} already exists.`);
                     if (this._expireMs && !result[1][1])
                         throw new RedisInternalError30(`Failed to add expire ms when adding key ${key} in Redis`);
-
                     return 'OK';
                 } catch (error) {
+                    console.log(error);
                     if (error instanceof KeyExistError10) throw error;
-
                     if (retries === 0) {
                         if (error instanceof CustomError) throw error;
                         throw new UnknownInternalError50(
@@ -196,12 +210,13 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
                     }
                     retries--;
                 }
-            } while (retries > 0);
+            } while (retries >= 0);
             throw new UnknownInternalError50(
-                "This error shouldn't have occured , please check the add method in Redis Manager class if ."
+                "This error shouldn't have occured , please check the add method in Redis Manager class."
             );
         } catch (error) {
             if (error instanceof CustomError) throw error;
+
             throw new UnknownInternalError50(
                 `Failed to add key-value pair ${JSON.stringify({ key, value: value ?? null })} in Redis`,
                 error
@@ -220,11 +235,13 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
         }
     }
 
-    async update({ key, value, lockTTL = this._defaultLockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'> {
+    async update({ key, value, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'> {
         const prefixedKey = this._prefixHandler.concat(key);
         let lock;
         try {
-            lock = await this._redlock.acquire(['lock:' + prefixedKey], lockTTL);
+            lock = this._redlock
+                ? await this._redlock.acquire(['lock:' + prefixedKey], lockTTL || this._defaultLockTTL!)
+                : null;
 
             const pipeline = this._client.pipeline().set(prefixedKey, this._JSONHandler.serialize(value), 'XX');
             if (this._expireMs) {
@@ -255,7 +272,7 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
                     }
                     retries--;
                 }
-            } while (retries > 0);
+            } while (retries >= 0);
             throw new UnknownInternalError50(
                 "This error shouldn't have occured , please check the update method in Redis Manager class ."
             );
@@ -279,12 +296,14 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
         }
     }
 
-    async upsert({ key, value, lockTTL = this._defaultLockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'> {
+    async upsert({ key, value, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'> {
         const prefixedKey = this._prefixHandler.concat(key);
         let lock;
 
         try {
-            lock = await this._redlock.acquire(['lock:' + prefixedKey], lockTTL);
+            lock = this._redlock
+                ? await this._redlock.acquire(['lock:' + prefixedKey], lockTTL || this._defaultLockTTL!)
+                : null;
 
             const pipeline = this._client.pipeline().set(prefixedKey, this._JSONHandler.serialize(value), 'NX');
             if (this._expireMs) {
@@ -338,12 +357,14 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
         }
     }
 
-    async delete({ key, lockTTL = this._defaultLockTTL }: TInputKeyValueWithLockTTL<V>): Promise<boolean> {
+    async delete({ key, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<boolean> {
         const prefixedKey = this._prefixHandler.concat(key);
         let lock;
 
         try {
-            lock = await this._redlock.acquire(['lock:' + prefixedKey], lockTTL);
+            lock = this._redlock
+                ? await this._redlock.acquire(['lock:' + prefixedKey], lockTTL || this._defaultLockTTL!)
+                : null;
 
             let retries = this._maxRetries;
             let result;
@@ -430,4 +451,4 @@ class RedisManager<V extends string | number | Buffer | null> implements IRedisM
     }
 }
 
-export { RedisManager, TInputKeyValueWithLockTTL, IRedisManager, IRedisManagerConfig };
+export { RedisManager, TInputKeyValueWithLockTTL, IRedisManager, TRedisManagerConfig };

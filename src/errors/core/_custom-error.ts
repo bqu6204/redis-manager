@@ -3,7 +3,7 @@ abstract class CustomError extends Error {
     constructor(message: string, error?: unknown) {
         super(message);
 
-        console.log('[ ERROR ] Redis-Manager: ' + message, error ?? '');
+        console.error('[ ERROR ] Redis-Manager: ' + message, error ?? '');
 
         Object.setPrototypeOf(this, CustomError.prototype);
     }
