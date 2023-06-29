@@ -1,6 +1,6 @@
 {
   "name": "@es-node/redis-manager",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "An ioredis wrapper featured with redlock , NX settings to prevent race condition,  and a prefix handler automatically concat and split prefixes.",
   "main": "redis-manager.js",
   "scripts": {
