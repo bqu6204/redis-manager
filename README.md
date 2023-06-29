@@ -1,13 +1,31 @@
 # Redis Manager
 
-Redis Manager is a module that provides a set of methods to interact with Redis, a popular in-memory data store. It allows you to add, update, delete, and retrieve key-value pairs in Redis.
+Redis Manager is a module that provides a set of methods to interact with Redis (ioredis), a popular in-memory data store. It allows you to add, update, delete, and retrieve key-value pairs in Redis.
 
 ## Installation
 
-To install the Redis Manager module, you can use npm:
+Since it is based on ioredis "^5.3.2", and redlock "^5.0.0-beta.2", you will need to install them:
+
+```bash
+npm install ioredis redlock
+```
+
+or
+
+```bash
+yarn add ioredis redlock
+```
+
+To install the Redis Manager module, you can use npm or yarn:
 
 ```bash
 npm install @es-node/redis-manager
+```
+
+or
+
+```bash
+yarn add redis-manager
 ```
 
 ## Usage
@@ -26,7 +44,7 @@ const redisManager = new RedisManager({
     namespace: 'myapp:', // The namespace prefix for keys
     maxRetries: 3, // The number of retries for failed Redis internal operations
     useRedlock: true, // Enable distributed lock management
-    defaultLockTTL: 5000, // Default time-to-live (TTL) value for keys
+    defaultLockTTL: 5000, // Default time-to-live (TTL) value for locks, if overtime, locks will be released.
 });
 
 // Add a key-value pair to Redis
@@ -67,7 +85,7 @@ Adds a key-value pair to Redis.
 
 -   `key` (string): The key associated with the value.
 -   `value` (any): The value to be stored.
--   `lockTTL` (number): Optional time-to-live value in milliseconds.
+-   `lockTTL` (number): Optional time-to-live value for locks in milliseconds.
 
 Returns a promise that resolves to 'OK'.
 
@@ -80,7 +98,7 @@ Updates the value of an existing key in Redis.
 
 -   `key` (string): The key associated with the value.
 -   `value` (any): The new value to be updated.
--   `lockTTL` (number): Optional time-to-live value in milliseconds.
+-   `lockTTL` (number): Optional time-to-live value for locks in milliseconds.
 
 Returns a promise that resolves to 'OK'.
 
@@ -93,7 +111,7 @@ Upserts a key-value pair in Redis. If the key exists, the value is updated; othe
 
 -   `key` (string): The key associated with the value.
 -   `value` (any): The value to be stored.
--   `lockTTL` (number): Optional time-to-live value in milliseconds.
+-   `lockTTL` (number): Optional time-to-live value for locks in milliseconds.
 
 Returns a promise that resolves to 'OK'.
 

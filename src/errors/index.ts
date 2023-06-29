@@ -4,3 +4,4 @@ export * from './20-value-undefined';
 export * from './30-redis-internal';
 export * from './40-redlock-internal';
 export * from './50-unknown-internal';
+export * from './core/_custom-error';
