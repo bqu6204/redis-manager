@@ -189,14 +189,11 @@ class RedisManager<V> implements IRedisManager<V> {
                     //   [[ null, <<return value 1>> ], [ null, <<return value 2>> ], ...].
                     // Every [n][0] will be set to null, and [n][1] is the return value.
 
-                    console.log('Result: ', result);
-
                     if (result[0][1] !== 'OK') throw new KeyExistError10(`Key ${key} already exists.`);
                     if (this._expireMs && !result[1][1])
                         throw new RedisInternalError30(`Failed to add expire ms when adding key ${key} in Redis`);
                     return 'OK';
                 } catch (error) {
-                    console.log(error);
                     if (error instanceof KeyExistError10) throw error;
                     if (retries === 0) {
                         if (error instanceof CustomError) throw error;
