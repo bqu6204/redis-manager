@@ -1,13 +1,13 @@
 import { redisClient } from '../../__test-setup/setup-files-after-env';
-import { KeyNotExistError11, RedisInternalError30 } from '../../errors';
+import { RedisInternalError30 } from '../../errors';
 import { RedisManager } from '../../redis-manager';
 
 let redisManager: any;
 
-beforeAll(async () => {
+beforeAll(() => {
     redisManager = new RedisManager<any>({
         client: redisClient,
-        namespace: 'update',
+        namespace: 'upsert',
         maxRetries: 5,
         useRedlock: false,
     });
@@ -17,116 +17,126 @@ afterEach(async () => {
     await redisManager.clearNamespace();
 });
 
-describe('Update various value types to storage', () => {
-    test('update object', async () => {
+describe('upsert various value types to storage', () => {
+    test('upsert object', async () => {
         const data = { key: 'object', value: { data: 'random' } };
 
-        await redisManager!.add(data);
-        const result = await redisManager!.update(data);
+        const result = await redisManager!.upsert(data);
         expect(result).toBe('OK');
 
         const value = await redisManager!.get(data.key);
         expect(value.data).toBe('random');
+
+        const result2 = await redisManager!.upsert(data);
+        expect(result2).toBe('OK');
     });
 
-    test('update null', async () => {
+    test('upsert null', async () => {
         const data = { key: 'null', value: null };
 
-        await redisManager!.add(data);
-        const result = await redisManager!.update(data);
+        const result = await redisManager!.upsert(data);
         expect(result).toBe('OK');
 
         const value = await redisManager!.get(data.key);
         expect(value).toBeNull();
+
+        const result2 = await redisManager!.upsert(data);
+        expect(result2).toBe('OK');
     });
 
-    test('update array', async () => {
+    test('upsert array', async () => {
         const data = { key: 'array', value: [1, 2, 3] };
 
-        await redisManager!.add(data);
-        const result = await redisManager!.update(data);
+        const result = await redisManager!.upsert(data);
         expect(result).toBe('OK');
 
         const value = await redisManager!.get(data.key);
         expect(value).toEqual([1, 2, 3]);
+
+        const result2 = await redisManager!.upsert(data);
+        expect(result2).toBe('OK');
     });
 
-    test('update undefined', async () => {
+    test('upsert undefined', async () => {
         const data = { key: 'undefined', value: undefined };
 
-        await redisManager!.add(data);
-        const result = await redisManager!.update(data);
+        const result = await redisManager!.upsert(data);
         expect(result).toBe('OK');
 
         const value = await redisManager!.get(data.key);
         expect(value).toBeNull();
+
+        const result2 = await redisManager!.upsert(data);
+        expect(result2).toBe('OK');
     });
 
-    test('update boolean', async () => {
+    test('upsert boolean', async () => {
         const data = { key: 'boolean', value: true };
 
-        await redisManager!.add(data);
-        const result = await redisManager!.update(data);
+        const result = await redisManager!.upsert(data);
         expect(result).toBe('OK');
 
         const value = await redisManager!.get(data.key);
         expect(value).toBe(true);
+
+        const result2 = await redisManager!.upsert(data);
+        expect(result2).toBe('OK');
     });
 
-    test('update string', async () => {
+    test('upsert string', async () => {
         const data = { key: 'string', value: 'hello' };
 
-        await redisManager!.add(data);
-        const result = await redisManager!.update(data);
+        const result = await redisManager!.upsert(data);
         expect(result).toBe('OK');
 
         const value = await redisManager!.get(data.key);
         expect(value).toBe('hello');
+
+        const result2 = await redisManager!.upsert(data);
+        expect(result2).toBe('OK');
     });
 
-    test('update number', async () => {
+    test('upsert number', async () => {
         const data = { key: 'number', value: 42 };
 
-        await redisManager!.add(data);
-        const result = await redisManager!.update(data);
+        const result = await redisManager!.upsert(data);
         expect(result).toBe('OK');
 
         const value = await redisManager!.get(data.key);
         expect(value).toBe(42);
+
+        const result2 = await redisManager!.upsert(data);
+        expect(result2).toBe('OK');
     });
 
-    test('update bigint', async () => {
+    test('upsert bigint', async () => {
         const data = { key: 'bigint', value: BigInt(123456789) };
 
-        await redisManager!.add(data);
-        const result = await redisManager!.update(data);
+        const result = await redisManager!.upsert(data);
         expect(result).toBe('OK');
 
         const value = await redisManager!.get(data.key);
         expect(value).toEqual(BigInt(123456789));
+
+        const result2 = await redisManager!.upsert(data);
+        expect(result2).toBe('OK');
     });
 
-    test('update buffer', async () => {
+    test('upsert buffer', async () => {
         const data = { key: 'buffer', value: Buffer.from('data') };
 
-        await redisManager!.add(data);
-        const result = await redisManager!.update(data);
+        const result = await redisManager!.upsert(data);
         expect(result).toBe('OK');
 
         const value = await redisManager!.get(data.key);
         expect(value).toEqual(Buffer.from('data'));
+
+        const result2 = await redisManager!.upsert(data);
+        expect(result2).toBe('OK');
     });
 });
 
-describe('Key does not exist in storage', () => {
-    it('throws KeyNotExistError11 (code: 11)', async () => {
-        const data = { key: 'not-exist', value: null };
-        await redisClient.del(data.key);
-        await expect(redisManager.update(data)).rejects.toThrow(KeyNotExistError11);
-    });
-});
-
-describe('Failed to update key for unexpected reason', () => {
+describe('Failed to upsert key for unexpected reason', () => {
     it('throws RedisInternalError30 (code: 30) ', async () => {
         const data = { key: 'unexpected-error', value: Buffer.from('data') };
 
@@ -145,24 +155,23 @@ describe('Failed to update key for unexpected reason', () => {
             useRedlock: false,
         });
 
-        await expect(redisManager.update(data)).rejects.toThrow(RedisInternalError30);
+        await expect(redisManager.add(data)).rejects.toThrow(RedisInternalError30);
         expect(mockExec).toHaveBeenCalled();
     });
 });
 
-describe('Update key with expire time ', () => {
+describe('upsert key with expire time ', () => {
     it('Successfully udpates  ', async () => {
         const data = { key: 'expire-time', value: Buffer.from('data') };
         const redisManager = new RedisManager({
             client: redisClient,
-            namespace: 'update-expire-success',
+            namespace: 'upsert-expire-success',
             expireMs: 10 * 1000,
             maxRetries: 5,
             useRedlock: false,
         });
 
-        await redisManager!.add(data);
-        await expect(redisManager.update(data)).resolves.toBe('OK');
+        await expect(redisManager.upsert(data)).resolves.toBe('OK');
     });
 
     it('Fails with throwing RedisInternalError30 (code: 30)', async () => {
@@ -182,13 +191,13 @@ describe('Update key with expire time ', () => {
 
         const redisManager = new RedisManager({
             client: mockClient as any,
-            namespace: 'update-expire-failed',
+            namespace: 'upsert-expire-fail',
             expireMs: 10 * 1000,
             maxRetries: 5,
             useRedlock: false,
         });
 
-        await expect(redisManager.update(data)).rejects.toThrow(RedisInternalError30);
+        await expect(redisManager.upsert(data)).rejects.toThrow(RedisInternalError30);
 
         expect(mockExec).toHaveBeenCalled();
     });

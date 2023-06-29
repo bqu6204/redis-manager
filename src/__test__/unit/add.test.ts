@@ -1,27 +1,20 @@
-import Redis from 'ioredis';
+import { redisClient } from '../../__test-setup/setup-files-after-env';
 import { KeyExistError10, RedisInternalError30 } from '../../errors';
 import { RedisManager } from '../../redis-manager';
 
 let redisManager: any;
-let redisClient: any;
 
 beforeAll(() => {
-    redisClient = new Redis();
     redisManager = new RedisManager({
         client: redisClient,
-        namespace: 'key-value',
+        namespace: 'add',
         maxRetries: 5,
         useRedlock: false,
     });
 });
 
 afterEach(async () => {
-    await redisManager.clearAll();
-});
-
-afterAll(async () => {
-    await redisManager.clearAll();
-    await redisClient.quit();
+    await redisManager.clearNamespace();
 });
 
 describe('Add various value types to storage', () => {
@@ -157,7 +150,7 @@ describe('Add key with expiration time', () => {
         const data = { key: 'expiration_time', value: Buffer.from('data') };
         const redisManager = new RedisManager({
             client: redisClient,
-            namespace: 'key-value',
+            namespace: 'add-expire-success',
             expireMs: 10 * 1000,
             maxRetries: 5,
             useRedlock: false,
@@ -183,7 +176,7 @@ describe('Add key with expiration time', () => {
 
         const redisManager = new RedisManager({
             client: mockClient as any,
-            namespace: 'key-value',
+            namespace: 'add-expire-failed',
             expireMs: 10 * 1000,
             maxRetries: 5,
             useRedlock: false,
