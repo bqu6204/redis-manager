@@ -446,10 +446,10 @@ class RedisManager<V> implements IRedisManager<V> {
         return undefined; // Return undefined indicating failure
     }
 
-    async clearNamespace(namespace?: string): Promise<void> {
+    async clearNamespace(): Promise<void> {
         let pointer = 0;
         do {
-            const [newPointer, keys] = await this._client.scan(pointer, 'MATCH', namespace || this._namespace + '*');
+            const [newPointer, keys] = await this._client.scan(pointer, 'MATCH', this._namespace + '*');
             if (keys.length > 0) {
                 await this._client.unlink(...keys);
             }
