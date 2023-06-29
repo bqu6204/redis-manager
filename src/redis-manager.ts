@@ -8,9 +8,12 @@ import { PrefixHandler } from './handler-prefix';
 /**
  * Represents the input parameters for adding a key-value pair with an optional time-to-live (TTL) value.
  */
-type TInputKeyValueWithLockTTL<V> = {
+type TKeyValueWithLockTTL<V> = TKeyWithLockTTL & {
+    value: V;
+};
+
+type TKeyWithLockTTL = {
     key: string; // The key associated with the value.
-    value: V; // The value associated with the key. Cannot be null.
     lockTTL?: number; // Optional time-to-live value in milliseconds.
 };
 
@@ -30,7 +33,7 @@ interface IRedisManager<V> {
      * @throws KeyExistError10 if the key already exists.
      * @throws RedisInternalError30 if an error occurs during the Redis operation.
      */
-    add({ key, value, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'>;
+    add({ key, value, lockTTL }: TKeyValueWithLockTTL<V>): Promise<'OK'>;
     /**
      * Updates the value of an existing key in Redis.
      *
@@ -41,7 +44,7 @@ interface IRedisManager<V> {
      * @throws KeyNotExistError11 if the key does not exist.
      * @throws RedisInternalError30 if an error occurs during the Redis operation.
      */
-    update({ key, value, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'>;
+    update({ key, value, lockTTL }: TKeyValueWithLockTTL<V>): Promise<'OK'>;
 
     /**
      * Upserts a key-value pair in Redis. If the key exists, the value is updated; otherwise, a new key-value pair is added.
@@ -52,7 +55,7 @@ interface IRedisManager<V> {
      * @returns A promise that resolves 'OK'.
      * @throws RedisInternalError30 if an error occurs during the Redis operation.
      */
-    upsert({ key, value, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'>;
+    upsert({ key, value, lockTTL }: TKeyValueWithLockTTL<V>): Promise<'OK'>;
 
     /**
      * Deletes a key and its associated value from Redis.
@@ -62,7 +65,7 @@ interface IRedisManager<V> {
      * @returns A promise that resolves to true if the key was deleted successfully, false otherwise.
      * @throws RedisInternalError30 if an error occurs during the Redis operation.
      */
-    delete({ key, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<boolean>;
+    delete({ key, lockTTL }: TKeyWithLockTTL): Promise<boolean>;
 
     /**
      * Checks if a key exists in Redis.
@@ -81,6 +84,14 @@ interface IRedisManager<V> {
      * @throws RedisInternalError30 if an error occurs during the Redis operation.
      */
     get(key: string): Promise<V | undefined>;
+
+    /**
+     * Clears all keys with specific namespace (prefix) from Redis.
+     *
+     * @returns A promise that resolves when all keys with specific namespace (prefix) are cleared.
+     * @throws RedisInternalError30 if an error occurs during the Redis operation.
+     */
+    clearNamespace(): Promise<void>;
 
     /**
      * Clears all keys and their associated values from Redis.
@@ -162,7 +173,7 @@ class RedisManager<V> implements IRedisManager<V> {
         return this._expireMs;
     }
 
-    async add({ key, value, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'> {
+    async add({ key, value, lockTTL }: TKeyValueWithLockTTL<V>): Promise<'OK'> {
         const prefixedKey = this._prefixHandler.concat(key);
         let lock;
         try {
@@ -232,7 +243,7 @@ class RedisManager<V> implements IRedisManager<V> {
         }
     }
 
-    async update({ key, value, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'> {
+    async update({ key, value, lockTTL }: TKeyValueWithLockTTL<V>): Promise<'OK'> {
         const prefixedKey = this._prefixHandler.concat(key);
         let lock;
         try {
@@ -293,7 +304,7 @@ class RedisManager<V> implements IRedisManager<V> {
         }
     }
 
-    async upsert({ key, value, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<'OK'> {
+    async upsert({ key, value, lockTTL }: TKeyValueWithLockTTL<V>): Promise<'OK'> {
         const prefixedKey = this._prefixHandler.concat(key);
         let lock;
 
@@ -354,7 +365,7 @@ class RedisManager<V> implements IRedisManager<V> {
         }
     }
 
-    async delete({ key, lockTTL }: TInputKeyValueWithLockTTL<V>): Promise<boolean> {
+    async delete({ key, lockTTL }: TKeyWithLockTTL): Promise<boolean> {
         const prefixedKey = this._prefixHandler.concat(key);
         let lock;
 
@@ -432,6 +443,17 @@ class RedisManager<V> implements IRedisManager<V> {
         return undefined; // Return undefined indicating failure
     }
 
+    async clearNamespace(namespace?: string): Promise<void> {
+        let pointer = 0;
+        do {
+            const [newPointer, keys] = await this._client.scan(pointer, 'MATCH', namespace || this._namespace + '*');
+            if (keys.length > 0) {
+                await this._client.unlink(...keys);
+            }
+            pointer = Number(newPointer);
+        } while (pointer !== 0 && pointer);
+    }
+
     async clearAll(): Promise<void> {
         let retries = this._maxRetries;
         while (retries >= 0) {
@@ -448,4 +470,4 @@ class RedisManager<V> implements IRedisManager<V> {
     }
 }
 
-export { RedisManager, TInputKeyValueWithLockTTL, IRedisManager, TRedisManagerConfig };
+export { RedisManager, TKeyValueWithLockTTL, IRedisManager, TRedisManagerConfig };
