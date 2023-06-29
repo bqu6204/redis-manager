@@ -379,6 +379,7 @@ class RedisManager<V> implements IRedisManager<V> {
             while (retries >= 0) {
                 try {
                     result = await this._client.del(prefixedKey);
+                    return result === 1;
                 } catch (error) {
                     if (retries === 0) {
                         throw new RedisInternalError30(`Failed to delete key:${key} in Redis`, error);
@@ -386,7 +387,9 @@ class RedisManager<V> implements IRedisManager<V> {
                     retries--;
                 }
             }
-            return result === 1;
+            throw new UnknownInternalError50(
+                "This error shouldn't have occured , please check the delete method in Redis Manager class ."
+            );
         } catch (error) {
             if (error instanceof CustomError) throw error;
             throw new RedisInternalError30(`Failed to delete key:${key} in Redis`, error);

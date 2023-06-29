@@ -11,8 +11,8 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-    // await redisClient.flushdb();
-    // await redisClient.quit();
+    await redisClient.flushdb();
+    await redisClient.quit();
 });
 
 export { redisClient };
