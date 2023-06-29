@@ -9,7 +9,7 @@
     "build": "npm run clean && npm run prettier && npm run lint && tsc && npm run copy-files",
     "copy-files": "cp ./README.md ./dist",
     "lint": "npx eslint .",
-    "pub": "npm version patch && npm run build && npm publish",
+    "pub": "npm version patch && npm run build && npm publish --access public",
     "prettier": "prettier --write .",
     "prepare": "husky install"
   },
